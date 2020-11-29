@@ -85,7 +85,7 @@ int main(int argc, char **argv) {
     }
 
     llvm::legacy::PassManager Passes;
-#if LLVM_VERSION_MAJOR == 5
+#if LLVM_VERSION_MAJOR >= 5
     Passes.add(new EnableFunctionOptPass());
 #endif
     /// Transform it to SSA
@@ -96,6 +96,6 @@ int main(int argc, char **argv) {
     // Passes.add(new FuncPtrPass());
     Passes.run(*M.get());
 #ifndef NDEBUG
-    system("pause");
+    //system("pause");
 #endif
 }

@@ -77,6 +77,7 @@ class Liveness : public FunctionPass {
 
         compBackwardDataflow(&F, &visitor, &result, initval);
         printDataflowResult<LivenessInfo>(errs(), result);
+        printf("HELP!\n");
         return false;
     }
 };
