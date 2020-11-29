@@ -42,7 +42,7 @@ def check(target,out=True):
         for line in f.readlines():
             line = line.strip()
             if line[:2] == '//':
-                print(line.replace('/','')[1:])
+                print(line.replace('/','').strip())
 
 def USAGE():
     print('USAGE:')
