@@ -27,6 +27,7 @@
 #include <llvm/Transforms/Utils.h>
 
 #include "Liveness.h"
+#include "FuncPtrVisitor.h"
 using namespace llvm;
 static ManagedStatic<LLVMContext> GlobalContext;
 static LLVMContext &getGlobalContext() { return *GlobalContext; }
@@ -50,11 +51,28 @@ struct FuncPtrPass : public ModulePass {
     FuncPtrPass() : ModulePass(ID) {}
 
     bool runOnModule(Module &M) override {
+        /*
         errs() << "Hello: ";
         errs().write_escaped(M.getName()) << '\n';
         M.dump();
         errs() << "------------------------------\n";
+        */
+        DataflowResult<PointerInfo>::Type result;
+        FuncPtrVisitor visitor;
+        std::set<Function*> worklist;
+        for(Module::iterator mi = M.begin(),me = M.end();
+                mi != me;mi++){
+            worklist.insert(&*mi);
+        }
+        while(!worklist.empty()){
+            Function *func = *(worklist.begin());
+            worklist.erase(worklist.begin());
+            PointerInfo initval;
+            compForwardDataflow(func, &visitor, &result, initval);
+        }
+
         return false;
+
     }
 };
 
@@ -92,8 +110,8 @@ int main(int argc, char **argv) {
     Passes.add(llvm::createPromoteMemoryToRegisterPass());
 
     /// Your pass to print Function and Call Instructions
-    Passes.add(new Liveness());
-    // Passes.add(new FuncPtrPass());
+    //Passes.add(new Liveness());
+    Passes.add(new FuncPtrPass());
     Passes.run(*M.get());
 #ifndef NDEBUG
     //system("pause");
