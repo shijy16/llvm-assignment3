@@ -1,4 +1,5 @@
 import os
+import subprocess
 import sys
 
 BUILD_DIR = '/llvm-assignment3/build/'
@@ -8,10 +9,19 @@ TESTCASE_DIR = '/llvm-assignment3/assign3-tests/'
 def execute_cmd(cmd,out=True):
     if out:
         print('\033[1;34m', cmd, '\033[0m')
-    res = os.popen(cmd).read()
+    process = subprocess.Popen(cmd,shell=True, stdout=subprocess.PIPE,stderr=subprocess.PIPE);
+    process.wait()
+    output = process.stdout.read().decode()
+    errs = process.stderr.read().decode()
+    output.replace('\\n','\n')
+    errs.replace('\\n','\n')
+
     if out:
-        print(res)
-    return res
+        if errs != '':
+            print("ERROR!")
+            print(errs)
+        print(output)
+    return output,errs
 
 
 def build():
@@ -23,7 +33,7 @@ def build():
 # target should be a string like 'test00'
 def build_testcase(target,out=True):
     os.chdir(TESTCASE_DIR)
-    cmd = 'clang -emit-llvm -c {0}.c -o {0}.bc'.format(target)
+    cmd = 'clang -emit-llvm -g -c {0}.c -o {0}.bc'.format(target)
     execute_cmd(cmd,out)
 
 def run_testcase(target,out=True):
@@ -34,7 +44,8 @@ def run_testcase(target,out=True):
 
 def check(target,out=True):
     build_testcase(target,False)
-    res = run_testcase(target,False)
+    output,res = run_testcase(target,False)
+    print(output)
     print('-------OUTPUT-------')
     print(res)
     print('-------ANSWER-------')

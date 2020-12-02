@@ -70,6 +70,7 @@ struct FuncPtrPass : public ModulePass {
             PointerInfo initval;
             compForwardDataflow(func, &visitor, &result, initval);
         }
+        visitor.printResult();
 
         return false;
 

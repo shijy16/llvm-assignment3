@@ -18,6 +18,21 @@
 
 using namespace llvm;
 
+///
+/// Dummy class to provide a typedef for the detailed result set
+/// For each basicblock, we compute its input dataflow val and its output
+/// dataflow val
+///
+template <class T>
+struct DataflowResult {
+    typedef typename std::map<BasicBlock *, std::pair<T, T> > Type;
+};
+
+template <class T>
+struct DataflowInsResult {
+    typedef typename std::map<Instruction *, std::pair<T, T> > Type;
+};
+
 /// Base dataflow visitor class, defines the dataflow function
 
 template <class T>
@@ -46,14 +61,33 @@ class DataflowVisitor {
             }
         }
     }
+    
+    virtual void compDFVal(BasicBlock *block, typename DataflowInsResult<T>::Type *dfval, bool isforward) {
+        if (isforward == true) {
+            for (BasicBlock::iterator ii = block->begin(), ie = block->end();
+                 ii != ie; ++ii) {
+                Instruction *inst = &*ii;
+                compDFVal(inst, dfval);
+            }
+        } else {
+            for (BasicBlock::reverse_iterator ii = block->rbegin(),
+                                              ie = block->rend();
+                 ii != ie; ++ii) {
+                Instruction *inst = &*ii;
+                compDFVal(inst, dfval);
+            }
+        }
+    }
 
+    virtual void mergeInputDF(Function* func,BasicBlock* block,T* bbinval){};
     ///
     /// Dataflow Function invoked for each instruction
     ///
     /// @inst the Instruction
     /// @dfval the input dataflow value
     /// @return true if dfval changed
-    virtual void compDFVal(Instruction *inst, T *dfval) = 0;
+    virtual void compDFVal(Instruction *inst, T *dfval) {};
+    virtual void compDFVal(Instruction *inst, typename DataflowInsResult<T>::Type *dfval) {};
 
     ///
     /// Merge of two dfvals, dest will be ther merged result
@@ -62,15 +96,17 @@ class DataflowVisitor {
     virtual void merge(T *dest, const T &src) = 0;
 };
 
-///
-/// Dummy class to provide a typedef for the detailed result set
-/// For each basicblock, we compute its input dataflow val and its output
-/// dataflow val
-///
-template <class T>
-struct DataflowResult {
-    typedef typename std::map<BasicBlock *, std::pair<T, T> > Type;
-};
+
+
+Instruction* getFisrtIns(BasicBlock* block){
+    Instruction* ins = &*(block->begin());
+    return ins;
+}
+
+Instruction* getLastIns(BasicBlock* block){
+    Instruction* ins = &*(--(block->end()));
+    return ins;
+}
 
 ///
 /// Compute a forward iterated fixedpoint dataflow function, using a
@@ -82,10 +118,88 @@ struct DataflowResult {
 /// @param visitor A function to compute dataflow vals
 /// @param result The results of the dataflow
 /// @initval the Initial dataflow value
+/*
+template <class T>
+void compForwardDataflow(Function *fn, DataflowVisitor<T> *visitor,
+                         typename DataflowInsResult<T>::Type *result,
+                         const T &initval) {
+    std::set<BasicBlock *> worklist;
+    for (Function::iterator bi = fn->begin(); bi != fn->end(); ++bi) {
+        BasicBlock *bb = &*bi;
+        worklist.insert(bb);
+        for (BasicBlock::iterator ii = bb->begin(), ie = bb->end(); ii != ie; ++ii){
+            Instruction *ins = &*ii;
+            result->insert(std::make_pair(ins, std::make_pair(initval, initval)));
+        }
+    }
+    // Iteratively compute the dataflow result
+    while (!worklist.empty()) {
+        BasicBlock *bb = *worklist.begin();
+        worklist.erase(worklist.begin());
+
+        // Merge all incoming value
+        T bbinval = (*result)[getFisrtIns(bb)].first;
+        //合并所有前继基本块的out
+        for (auto pi = pred_begin(bb), pe = pred_end(bb); pi != pe; pi++) {
+            visitor->merge(&bbinval, (*result)[getLastIns(*pi)].second);
+        }
+
+        T bbexitval = (*result)[getLastIns(bb)].second;
+        (*result)[getFisrtIns(bb)].first = bbinval;
+        
+        //计算一遍基本块内控制流
+        visitor->compDFVal(bb, result, false);
+
+        //算出来最后一个指令的out pointer2set变了的话，所有后继都要重算
+        if (bbexitval == (*result)[getLastIns(bb)].second) continue;
+
+        for (succ_iterator si = succ_begin(bb), se = succ_end(bb); si != se;
+             si++) {
+            worklist.insert(*si);
+        }
+        
+    }
+    return;
+}
+*/
 template <class T>
 void compForwardDataflow(Function *fn, DataflowVisitor<T> *visitor,
                          typename DataflowResult<T>::Type *result,
                          const T &initval) {
+    std::set<BasicBlock *> worklist;
+    for (Function::iterator bi = fn->begin(); bi != fn->end(); ++bi) {
+        BasicBlock *bb = &*bi;
+        worklist.insert(bb);
+        result->insert(std::make_pair(bb, std::make_pair(initval, initval)));
+    }
+    // Iteratively compute the dataflow result
+    while (!worklist.empty()) {
+        BasicBlock *bb = *worklist.begin();
+        worklist.erase(worklist.begin());
+        // Merge all incoming value
+        T bbinval = (*result)[bb].first;
+        //如果是函数第一个块，去拿它所有参数的pts然后合并
+        if(bb == &fn->getEntryBlock()){
+            visitor->mergeInputDF(fn,bb,&bbinval);
+        } else {
+        //否则合并所有前继块
+            for (auto pi = pred_begin(bb), pe = pred_end(bb); pi != pe; pi++) {
+                visitor->merge(&bbinval, (*result)[*pi].second);
+            }
+        }
+        T old_bbexitval = (*result)[bb].second;
+        (*result)[bb].first = bbinval;
+        //计算一遍基本块内控制流
+        visitor->compDFVal(bb,&bbinval, true);
+
+        //算出来最后一个out pointer2set变了的话，所有后继都要重算
+        if (bbinval == (*result)[bb].second) continue;
+
+        for (succ_iterator si = succ_begin(bb), se = succ_end(bb); si != se;
+             si++) {
+            worklist.insert(*si);
+        }
+    }
     return;
 }
 ///
