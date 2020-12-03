@@ -4,7 +4,7 @@ import sys
 
 BUILD_DIR = '/llvm-assignment3/build/'
 LLVM = '/usr/local/llvm10ra/'
-TESTCASE_DIR = '/llvm-assignment3/assign3-tests/'
+TESTCASE_DIR = '/llvm-assignment3/testcase/'
 
 def execute_cmd(cmd,out=True):
     if out:
