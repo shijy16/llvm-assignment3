@@ -194,6 +194,7 @@ void compForwardDataflow(Function *fn, DataflowVisitor<T> *visitor,
 
         //算出来最后一个out pointer2set变了的话，所有后继都要重算
         if (bbinval == (*result)[bb].second) continue;
+        (*result)[bb].second = bbinval;
 
         for (succ_iterator si = succ_begin(bb), se = succ_end(bb); si != se;
              si++) {
