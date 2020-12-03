@@ -14,11 +14,12 @@ typedef std::map<Value*,std::set<Value*>> Pointer2Set;
 
 struct PointerInfo {
     Pointer2Set p2set;
-    PointerInfo() : p2set() {}
+    Pointer2Set p2set_field;
+    PointerInfo() : p2set(),p2set_field() {}
     PointerInfo(const PointerInfo &info) : p2set(info.p2set) {}
 
     bool operator==(const PointerInfo &info) const {
-        return p2set == info.p2set;
+        return p2set == info.p2set && p2set_field == info.p2set_field;
     }
 };
 /*
@@ -51,6 +52,17 @@ public:
                 printf("MERGE!!!!!\n");
             }
         }
+        for (Pointer2Set::const_iterator ii = src.p2set_field.begin(),
+                ie = src.p2set_field.end();
+                ii != ie; ++ii) {
+            std::set<Value*> value_set = ii->second;
+            for(std::set<Value*>::iterator vi = value_set.begin(),
+                    ve = value_set.end();
+                    vi != ve;++vi){
+                dest->p2set_field[ii->first].insert(*vi);
+                printf("MERGE!!!!!\n");
+            }
+        }
     }
 
 
@@ -69,6 +81,7 @@ public:
 
     void compDFVal(Instruction *inst, PointerInfo* dfval) override {
         if (isa<DbgInfoIntrinsic>(inst)) return;
+        if (isa<IntrinsicInst>(inst)) return;
         //inst->dump();
         if (CallInst *callInst = dyn_cast<CallInst>(inst)){
             std::cout<<"CallInst:"<<callInst->getDebugLoc().getLine()<<std::endl;
@@ -77,8 +90,94 @@ public:
         } else if (PHINode* phyNode = dyn_cast<PHINode>(inst)) {
             std::cout<<"PHINode:"<<inst->getDebugLoc().getLine()<<std::endl;
             handlePHINode(phyNode,dfval);
-            errs()<< "after handlePHINode " <<dfval->p2set.size()<<"\n";
+        } else if (LoadInst* loadInst = dyn_cast<LoadInst>(inst)){
+            std::cout<<"LoadInst:"<<inst->getDebugLoc().getLine()<<std::endl;
+            handleLoadInst(loadInst,dfval);
+        } else if (StoreInst* storeInst = dyn_cast<StoreInst>(inst)){
+            std::cout<<"StoreInst:"<<inst->getDebugLoc().getLine()<<std::endl;
+            handleStoreInst(storeInst,dfval);
+        } else if (GetElementPtrInst* getElementPtrInst = dyn_cast<GetElementPtrInst>(inst)){
+            std::cout<<"GetElementPtrInst:"<<inst->getDebugLoc().getLine()<<std::endl;
+            handleGetElementPtrInst(getElementPtrInst,dfval);
         }
+    }
+
+    void handleGetElementPtrInst(GetElementPtrInst* gepInst,PointerInfo* dfval){
+        Value* ptr = gepInst->getPointerOperand();
+        dfval->p2set[gepInst].clear();
+        if(dfval->p2set[ptr].empty()){
+            dfval->p2set[gepInst].insert(ptr);
+        } else {
+            dfval->p2set[gepInst].insert(dfval->p2set[ptr].begin(),dfval->p2set[ptr].end());
+        }
+    }
+
+    void handleLoadInst(LoadInst* loadInst,PointerInfo* dfval){
+        errs()<<"Load:\n";
+        Value* target_value = loadInst->getPointerOperand();
+        target_value->dump();
+        dfval->p2set[loadInst].clear();
+        std::set<Value*> values;
+        if(GetElementPtrInst* gepInst = dyn_cast<GetElementPtrInst>(target_value)){
+            Value* ptr = gepInst->getPointerOperand();
+            values = dfval->p2set[ptr];
+            if(dfval->p2set[ptr].empty()){
+                values = dfval->p2set_field[ptr];
+                dfval->p2set[loadInst].insert(values.begin(),values.end());
+            } else {
+                values = dfval->p2set[ptr];
+                for(auto vi = values.begin(),ve = values.end();vi != ve; vi++){
+                    Value* v = *vi;
+                    dfval->p2set[loadInst].insert(dfval->p2set_field[v].begin(),dfval->p2set_field[v].end());
+                }
+            }
+        } else {
+            values = dfval->p2set[gepInst];
+            dfval->p2set[loadInst].insert(values.begin(),values.end());
+        }
+
+    }
+
+
+    void handleStoreInst(StoreInst* storeInst,PointerInfo* dfval){
+        Value* store_value = storeInst->getValueOperand();
+        Value* target_value = storeInst->getPointerOperand();
+        errs()<<"Store:\n";
+        target_value->dump();
+        //获取要存储的值的values
+        std::set<Value*> store_values;
+        if(store_value->getType()->isPointerTy()){
+            if(Function* func = dyn_cast<Function>(store_value)){
+                store_values.insert(store_value);
+            } else {
+                store_values.insert(dfval->p2set[store_value].begin(),dfval->p2set[store_value].end());
+            }
+        } else {
+            //store_values.insert(store_value);
+        }
+        //存入目标value的set
+        dfval->p2set[target_value].clear();
+        //如果目标value是取结构体指针或者数组指针的指令，使用field
+        if(GetElementPtrInst* gepInst = dyn_cast<GetElementPtrInst>(target_value)){
+            Value* ptr = gepInst->getPointerOperand();
+            if(dfval->p2set[ptr].empty()){
+                dfval->p2set_field[ptr].clear();
+                dfval->p2set_field[ptr].insert(store_values.begin(),store_values.end());
+                ptr->dump();
+                errs()<<dfval->p2set[ptr].size() <<"\n";
+            } else {
+                std::set<Value*> values = dfval->p2set[ptr];
+                for(auto vi = values.begin(),ve = values.end();vi != ve; vi++){
+                    Value* v = *vi;
+                    dfval->p2set_field[v].clear();
+                    dfval->p2set_field[v].insert(store_values.begin(),store_values.end());
+                }
+            }
+        } else { //否则直接存
+            dfval->p2set[target_value].clear();
+            dfval->p2set[target_value].insert(store_values.begin(),store_values.end());
+        }
+
     }
 
     void handlePHINode(PHINode* phyNode,PointerInfo* dfval){
