@@ -57,32 +57,75 @@ public:
     }
 
     void mergeInputDF(Function* fn,BasicBlock* bb,PointerInfo* bbinval){
-        //是函数第一个block，合并所有参数的pts
         merge(bbinval,getArgs(fn));
     }
 
     void compDFVal(Instruction *inst, PointerInfo* dfval) override {
         if (isa<DbgInfoIntrinsic>(inst)) return;
+        inst->dump();
         if (CallInst *callInst = dyn_cast<CallInst>(inst)){
             std::cout<<"CallInst:"<<callInst->getDebugLoc().getLine()<<std::endl;
-            callInst->dump();
             handleCallInst(callInst,dfval);
+        } else if (true) {
         }
 
     }
 
     void handleCallInst(CallInst* callInst,PointerInfo* dfval){
         int line = callInst->getDebugLoc().getLine();
+
         //得出所有可能调用的函数
-        if (Function *func = callInst->getCalledFunction()) {  // 最简单的直接函数调用
+        std::set<Function*> callees;
+        callees = getFuncByValue(callInst->getCalledOperand(),dfval);
+        for(auto ci = callees.begin(),ce = callees.end();ci != ce;ci++){
+            Function* func = *ci;
             result[line].push_back(func);
-        } else if (Value *value = callInst->getCalledOperand()) {
-            
-        } else {
-            errs() << "ERROR\n";
         }
-        //计算所有参数的pts，放进arg_p2s
+
+        //计算所有参数的pts
+        PointerInfo caller_args;
+        for(unsigned i = 0; i < callInst->getNumArgOperands();i++){
+            Value* arg = callInst->getArgOperand(i);
+            if(arg->getType()->isPointerTy()){
+                caller_args.p2set[arg].insert(dfval->p2set[arg].begin(),dfval->p2set[arg].end());
+            }
+        }
+        if(caller_args.p2set.empty()){ //没有指针参数的话就直接返回
+            printf("Empty!\n");
+            return;
+        }
+        //放进每个callee对应参数的arg_p2s
+
+
+
     }
+
+
+    std::set<Function*> getFuncByValue_work(Value* value,PointerInfo* dfval){
+        std::set<Function*> res;
+        if(Function* func = dyn_cast<Function>(value)){
+            res.insert(func);
+            return res;
+        }
+        for(auto vi = dfval->p2set[value].begin(),ve = dfval->p2set[value].end();
+                vi != ve; vi++){
+            std::set<Function*> r = getFuncByValue_work(*vi,dfval);
+            res.insert(r.begin(),r.end());
+        }
+        return res;
+    }
+
+    std::set<Function*> getFuncByValue(Value* value,PointerInfo* dfval){
+        std::set<Function*> res;
+        //沿着控制流找Function
+        res = getFuncByValue_work(value,dfval);
+        for(auto fi = res.begin(),fe = res.end(); fi != fe;fi++){
+            Function* func = *fi;
+            res.insert(func);
+        }
+        return res;
+    }
+
 
     void printResult(){
         for (std::map<int, std::list<Function *>>::iterator it = result.begin();
