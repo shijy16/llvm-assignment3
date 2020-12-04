@@ -64,6 +64,7 @@ public:
     std::map<Function*,std::set<Function*>> caller_map; //记录被调用函数的调用者
     std::map<Function*,std::set<Value*>> ret_p2s;
     std::map<int, std::list<Function *>> result;  // call指令对应到哪些函数
+    std::set<Function*> worklist;
     bool change = false;
     FuncPtrVisitor() :result(),arg_p2s(),ret_p2s(),ret_arg_p2s(),caller_map() {}
     void merge(PointerInfo *dest, const PointerInfo &src) override {
@@ -75,7 +76,6 @@ public:
                     ve = value_set.end();
                     vi != ve;++vi){
                 dest->p2set[ii->first].insert(*vi);
-                printf("MERGE!!!!!\n");
             }
         }
         for (Pointer2Set::const_iterator ii = src.p2set_field.begin(),
@@ -86,7 +86,6 @@ public:
                     ve = value_set.end();
                     vi != ve;++vi){
                 dest->p2set_field[ii->first].insert(*vi);
-                printf("MERGE!!!!!\n");
             }
         }
     }
@@ -100,7 +99,15 @@ public:
 
     void mergeInputDF(Function* fn,BasicBlock* bb,PointerInfo* bbinval){
         PointerInfo in_args_p2s = getArgs(fn);
-        merge(bbinval,in_args_p2s);
+        for(auto p2s : in_args_p2s.p2set){
+            bbinval->p2set[p2s.first].clear();
+            bbinval->p2set[p2s.first].insert(p2s.second.begin(),p2s.second.end());
+        }
+        for(auto p2s : in_args_p2s.p2set_field){
+            bbinval->p2set_field[p2s.first].clear();
+            bbinval->p2set_field[p2s.first].insert(p2s.second.begin(),p2s.second.end());
+        }
+        //merge(bbinval,in_args_p2s);
     }
 
     void compDFVal(Instruction *inst, PointerInfo* dfval) override {
@@ -131,17 +138,41 @@ public:
         errs()<<"\tdfval:"<<*dfval;
         Function* func = retInst->getFunction();
         Value* retValue = retInst->getReturnValue();
+        errs()<<"arg_p2s:"<<arg_p2s[func];
+        errs()<<"ret_arg_p2s:"<<ret_arg_p2s[func];
+        auto old_ret_arg_p2s = ret_arg_p2s[func];
         //把所有指针参数相关的放进ret_arg_p2s
         for(auto i:arg_p2s[func].p2set){
+            ret_arg_p2s[func].p2set[i.first].clear();
             ret_arg_p2s[func].p2set[i.first].insert(dfval->p2set[i.first].begin(),dfval->p2set[i.first].end());
+        }
+        for(auto i:arg_p2s[func].p2set_field){
+            ret_arg_p2s[func].p2set_field[i.first].clear();
             ret_arg_p2s[func].p2set_field[i.first].insert(dfval->p2set_field[i.first].begin(),dfval->p2set_field[i.first].end());
         }
+        bool change_ = false;
         errs()<<"ret_arg_p2s :"<<ret_arg_p2s[func];
-        if(!retValue || !retValue->getType()->isPointerTy()) return;
+        errs()<<"old_ret_arg_p2s :"<<old_ret_arg_p2s << !(ret_arg_p2s[func] == old_ret_arg_p2s);
+        if(!(ret_arg_p2s[func] == old_ret_arg_p2s)){
+            errs()<<"!!!!!!!!!!\n";
+            change_ = true;
+        }
+        //if(!retValue || !retValue->getType()->isPointerTy()) return;
         //把所有返回值放进ret_p2s
-        ret_p2s[func].insert(dfval->p2set[retValue].begin(),dfval->p2set[retValue].end());
+        if(retValue && retValue->getType()->isPointerTy()){
+            auto old = ret_p2s[func];
+            ret_p2s[func].insert(dfval->p2set[retValue].begin(),dfval->p2set[retValue].end());
+            if(ret_p2s[func] != old){
+                change_ = true;
+            }
+        }
+        if(change_){
+            for(auto f : caller_map[func]){
+                Function* ff = &*f;
+                worklist.insert(ff);
+            }
+        }
 
-        errs() << "\treturn:"<<retValue->getName() << " " << dfval->p2set <<"\n";
     }
 
     void handleGetElementPtrInst(GetElementPtrInst* gepInst,PointerInfo* dfval){
@@ -208,8 +239,6 @@ public:
             //store_values.insert(store_value);
         }
         */
-        //存入目标value的set
-        dfval->p2set[target_value].clear();
         //如果目标value是取结构体指针或者数组指针的指令，使用field
         if(GetElementPtrInst* gepInst = dyn_cast<GetElementPtrInst>(target_value)){
             Value* ptr = gepInst->getPointerOperand();
@@ -280,7 +309,6 @@ public:
         }
         errs() << "\t caller_args:" <<caller_args;
         if(caller_args.p2set.empty()){ //没有指针参数的话就直接返回
-            printf("Empty!\n");
             return;
         }
 
@@ -308,20 +336,35 @@ public:
                 if(caller_arg->getType()->isPointerTy()){
                     Value* callee_arg = callee->arg_begin() + i;
                     arg_p2s[callee].p2set[callee_arg].insert(caller_args.p2set[caller_arg].begin(),caller_args.p2set[caller_arg].end());
+                    arg_p2s[callee].p2set_field[callee_arg].insert(caller_args.p2set_field[caller_arg].begin(),caller_args.p2set_field[caller_arg].end());
+                    errs()<<"\t" << callee->getName() << "insert args:"<<arg_p2s[callee];
                     //搜索
                     std::set<Value*> worklist;
                     for(auto* v:caller_args.p2set[caller_arg]){
                         Value* vv = &*v;
                         worklist.insert(vv);
-                        if(!dfval->p2set[v].empty()){
-                            arg_p2s[callee].p2set[v].insert(dfval->p2set[v].begin(),dfval->p2set[v].end());
-                        }
-                        if(!dfval->p2set_field[v].empty()){
-                            arg_p2s[callee].p2set_field[v].insert(dfval->p2set_field[v].begin(),dfval->p2set_field[v].end());
-                        }
                     }
-                    if(!caller_args.p2set_field[caller_arg].empty())
-                        arg_p2s[callee].p2set_field[callee_arg].insert(caller_args.p2set_field[caller_arg].begin(),caller_args.p2set_field[caller_arg].end());
+                    for(auto* v:caller_args.p2set_field[caller_arg]){
+                        Value* vv = &*v;
+                        worklist.insert(vv);
+                    }
+                    while(!worklist.empty()){
+                        Value* v = *worklist.begin();
+                        v->dump();
+                        errs()<<"\n11111111111111111111111111111111111111111\n";
+                        worklist.erase(worklist.begin());
+                        if(!dfval->p2set[v].empty() && arg_p2s[callee].p2set[v].empty()){
+                            errs()<<"1insert!!!!!!!!!!!\n";
+                            arg_p2s[callee].p2set[v].insert(dfval->p2set[v].begin(),dfval->p2set[v].end());
+                            worklist.insert(dfval->p2set[v].begin(),dfval->p2set[v].end());
+                        }
+                        if(!dfval->p2set_field[v].empty() && arg_p2s[callee].p2set_field[v].empty()){
+                            errs()<<"insert!!!!!!!!!!!\n";
+                            arg_p2s[callee].p2set_field[v].insert(dfval->p2set_field[v].begin(),dfval->p2set_field[v].end());
+                            worklist.insert(dfval->p2set_field[v].begin(),dfval->p2set_field[v].end());
+                        }
+                        
+                    }
                 }
             }
             errs()<<"\t" << callee->getName() << "insert args:"<<arg_p2s[callee];
@@ -329,6 +372,42 @@ public:
         //获取被调用函数返回后的指针参数的p2s，并更新
         errs()<<"\tret args:\n";
         errs()<<*dfval;
+        for(auto ci = callees.begin(),ce = callees.end();ci != ce;ci++){
+            Function* callee = *ci;
+            errs()<<ret_arg_p2s[callee];
+            for(auto i : ret_arg_p2s[callee].p2set){
+                Value* t = i.first;
+                if(ce_arg_set.count(t) > 0){
+                    t = argmap[callee][t];
+                }
+                dfval->p2set[t].clear();
+                for(auto vv : i.second){
+                    Value* v = &*vv;
+                    if(ce_arg_set.count(v) > 0){
+                        dfval->p2set[t].insert(argmap[callee][v]);
+                    } else {
+                        dfval->p2set[t].insert(v);
+                    }
+                }
+            }
+            for(auto i : ret_arg_p2s[callee].p2set_field){
+                Value* t = i.first;
+                if(ce_arg_set.count(t) > 0){
+                    t = argmap[callee][t];
+                }
+                dfval->p2set_field[t].clear();
+                for(auto vv : i.second){
+                    Value* v = &*vv;
+                    if(ce_arg_set.count(v) > 0){
+                        dfval->p2set_field[t].insert(argmap[callee][v]);
+                    } else {
+                        dfval->p2set_field[t].insert(v);
+                    }
+                }
+            }
+        }
+        
+        /*
         for(auto ci = callees.begin(),ce = callees.end();ci != ce;ci++){
             Function* callee = *ci;
             errs()<<ret_arg_p2s[callee];
@@ -359,6 +438,7 @@ public:
                 }
             }
         }
+        */
         errs()<<*dfval;
 
 
@@ -370,8 +450,10 @@ public:
             }
         }
         if(old_arg_p2s != arg_p2s){
-            errs()<<"CHANGE!!!!!!\n";
-            change = true;
+            for(auto ci = callees.begin(),ce = callees.end();ci != ce;ci++){
+                Function* callee = *ci;
+                worklist.insert(callee);
+            }
         }
     }
 

@@ -1,4 +1,5 @@
 import os
+import time
 import subprocess
 import sys
 
@@ -10,7 +11,7 @@ def execute_cmd(cmd,out=True):
     if out:
         print('\033[1;34m', cmd, '\033[0m')
     process = subprocess.Popen(cmd,shell=True, stdout=subprocess.PIPE,stderr=subprocess.PIPE);
-    process.wait()
+    time.sleep(0.1);
     output = process.stdout.read().decode()
     errs = process.stderr.read().decode()
     output.replace('\\n','\n')
@@ -45,7 +46,7 @@ def run_testcase(target,out=True):
 
 def check(target,out=True):
     build_testcase(target,False)
-    output,res = run_testcase(target,False)
+    output,res = run_testcase(target,out)
 
     ans = []
     if(out):

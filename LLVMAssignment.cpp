@@ -58,6 +58,7 @@ struct FuncPtrPass : public ModulePass {
         errs() << "------------------------------\n";
         */
         M.dump();
+        /*
         DataflowResult<PointerInfo>::Type result;
         FuncPtrVisitor visitor;
         std::set<Function*> worklist;
@@ -73,18 +74,25 @@ struct FuncPtrPass : public ModulePass {
                 compForwardDataflow(func, &visitor, &result, initval);
             }
         }
-        /*
+        */
+        int count = 0;
+        DataflowResult<PointerInfo>::Type result;
+        FuncPtrVisitor visitor;
+        std::set<Function*> worklist;
         for(Module::iterator mi = M.begin(),me = M.end();
                 mi != me;mi++){
             worklist.insert(&*mi);
         }
         while(!worklist.empty()){
+            count++;
             Function *func = *(worklist.begin());
             worklist.erase(worklist.begin());
             PointerInfo initval;
             compForwardDataflow(func, &visitor, &result, initval);
+            visitor.arg_p2s[func].p2set.clear();
+            worklist.insert(visitor.worklist.begin(),visitor.worklist.end());
+            visitor.worklist.clear();
         }
-        */
         visitor.printResult();
 
         return false;
