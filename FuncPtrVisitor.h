@@ -37,9 +37,10 @@ inline raw_ostream &operator<<(raw_ostream &out, const PointerInfo &info) {
 class FuncPtrVisitor : public DataflowVisitor<struct PointerInfo> {
 public:
     std::map<Function*,PointerInfo> arg_p2s;
+    std::map<Function*,std::set<Value*>> ret_p2s;
     std::map<int, std::list<Function *>> result;  // call指令对应到哪些函数
     bool change = false;
-    FuncPtrVisitor() :result(),arg_p2s() {}
+    FuncPtrVisitor() :result(),arg_p2s(),ret_p2s() {}
     void merge(PointerInfo *dest, const PointerInfo &src) override {
         for (Pointer2Set::const_iterator ii = src.p2set.begin(),
                 ie = src.p2set.end();
@@ -83,22 +84,31 @@ public:
         if (isa<DbgInfoIntrinsic>(inst)) return;
         if (isa<IntrinsicInst>(inst)) return;
         if (CallInst *callInst = dyn_cast<CallInst>(inst)){
-            std::cout<<"CallInst:"<<callInst->getDebugLoc().getLine()<<std::endl;
+            //std::cout<<"CallInst:"<<callInst->getDebugLoc().getLine()<<std::endl;
             handleCallInst(callInst,dfval);
         } else if (PHINode* phyNode = dyn_cast<PHINode>(inst)) {
             //std::cout<<"PHINode:"<<inst->getDebugLoc().getLine()<<std::endl;
             handlePHINode(phyNode,dfval);
         } else if (LoadInst* loadInst = dyn_cast<LoadInst>(inst)){
-            std::cout<<"LoadInst:"<<inst->getDebugLoc().getLine()<<std::endl;
+            //std::cout<<"LoadInst:"<<inst->getDebugLoc().getLine()<<std::endl;
             handleLoadInst(loadInst,dfval);
         } else if (StoreInst* storeInst = dyn_cast<StoreInst>(inst)){
-            std::cout<<"StoreInst:"<<inst->getDebugLoc().getLine()<<std::endl;
+            //std::cout<<"StoreInst:"<<inst->getDebugLoc().getLine()<<std::endl;
             handleStoreInst(storeInst,dfval);
         } else if (GetElementPtrInst* getElementPtrInst = dyn_cast<GetElementPtrInst>(inst)){
-            std::cout<<"GetElementPtrInst:"<<inst->getDebugLoc().getLine()<<std::endl;
+            //std::cout<<"GetElementPtrInst:"<<inst->getDebugLoc().getLine()<<std::endl;
             handleGetElementPtrInst(getElementPtrInst,dfval);
-        } else if (BitCastInst* bitCastInst = dyn_cast<BitCastInst>(inst)){
+        } else if (ReturnInst* returnInst = dyn_cast<ReturnInst>(inst)){
+            handleReturnInst(returnInst,dfval);
         }
+    }
+
+    void handleReturnInst(ReturnInst* retInst,PointerInfo* dfval){
+        Function* func = retInst->getFunction();
+        Value* retValue = retInst->getReturnValue();
+        if(!retValue || !retValue->getType()->isPointerTy()) return;
+        //把所有返回值放进ret_p2s
+        ret_p2s[func].insert(dfval->p2set[retValue].begin(),dfval->p2set[retValue].end());
     }
 
     void handleGetElementPtrInst(GetElementPtrInst* gepInst,PointerInfo* dfval){
@@ -182,7 +192,7 @@ public:
         } else { //否则直接存
             dfval->p2set[target_value].clear();
             dfval->p2set[target_value].insert(store_values.begin(),store_values.end());
-            errs()<<dfval->p2set[target_value].size();
+            errs()<<dfval->p2set[target_value].size()<<"\n";
         }
         errs()<<"store end\n";
 
@@ -249,6 +259,14 @@ public:
                     arg_p2s[callee].p2set[callee_arg].insert(caller_args.p2set[caller_arg].begin(),caller_args.p2set[caller_arg].end());
                     printf("insert args:%ld\n",caller_args.p2set.count(caller_arg));
                 }
+            }
+        }
+
+        // 获取返回值
+        for(auto ci = callees.begin(),ce = callees.end();ci != ce;ci++){
+            Function* callee = *ci;
+            if(!ret_p2s[callee].empty()){
+                dfval->p2set[callInst].insert(ret_p2s[callee].begin(),ret_p2s[callee].end());
             }
         }
         if(old_arg_p2s != arg_p2s){

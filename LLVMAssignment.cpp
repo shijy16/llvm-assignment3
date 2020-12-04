@@ -62,7 +62,8 @@ struct FuncPtrPass : public ModulePass {
         FuncPtrVisitor visitor;
         std::set<Function*> worklist;
         visitor.change = true;
-        while(visitor.change){
+        int max = 50;
+        while(visitor.change && --max){
             visitor.change = false;
             for(Module::iterator mi = M.begin(),me = M.end();
                     mi != me;mi++){
