@@ -180,6 +180,7 @@ void compForwardDataflow(Function *fn, DataflowVisitor<T> *visitor,
         T bbinval = (*result)[bb].first;
         //如果是函数第一个块，去拿它所有参数的pts然后合并
         if(bb == &fn->getEntryBlock()){
+            errs()<< "---------" <<fn->getName() << "-----\n";
             visitor->mergeInputDF(fn,bb,&bbinval);
         } else {
         //否则合并所有前继块

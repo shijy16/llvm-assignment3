@@ -42,28 +42,69 @@ def run_testcase(target,out=True):
     return execute_cmd(cmd,out)
 
 
+
 def check(target,out=True):
     build_testcase(target,False)
     output,res = run_testcase(target,False)
-    print(output)
-    print('-------OUTPUT-------')
-    print(res)
-    print('-------ANSWER-------')
+
+    ans = []
+    if(out):
+        print(output)
+        print('-------OUTPUT-------')
+        print(res)
+        print('-------ANSWER-------')
     with open(TESTCASE_DIR + target + '.c','r') as f:
         for line in f.readlines():
             line = line.strip()
             if line[:2] == '//':
-                print(line.replace('/','').strip())
+                if(out):
+                    print(line.replace('/','').strip())
+                ans.append(line.replace('/','').strip())
+    res = res.strip().split('\n')
+    co = True
+    for i in range(len(ans)):
+        a = ans[i].replace(' ','')
+        r = res[i-len(ans)].replace(' ','')
+        if(a != r):
+            co = False
+            break
+    if co:
+        if out:
+            print("CORRECT ANSWER!")
+    else:
+        if out:
+            print("WRONG ANSWER!")
+    return co
+
+def check_all():
+    for i in range(35):
+        cnt = str(i)
+        if len(cnt) < 2:
+            cnt = '0' + cnt
+        try:
+            ans = check('test'+cnt,False)
+            if ans:
+                print('test'+cnt +':','\033[1;32mCORRECT\033[0m')
+            else:
+                print('test'+cnt +':','\033[1;31mWRONG\033[0m')
+        except:
+            print('test'+cnt +':','\033[1;33mFailed\033[0m')
+
+
+
 
 def USAGE():
     print('USAGE:')
     print('\tBUILD:\tpython test.py build')
     print('\tTEST:\tpython test.py test00')
+    print('\tTEST ALL:\tpython test.py testall')
 
 if __name__ == '__main__':
     if len(sys.argv) == 2:
         if sys.argv[1] == 'build':
             build()
+        if sys.argv[1] == 'testall':
+            check_all()
         elif len(sys.argv[1]) == 6:
             check(sys.argv[1])
         else:

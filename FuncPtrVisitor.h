@@ -33,6 +33,29 @@ inline raw_ostream &operator<<(raw_ostream &out, const PointerInfo &info) {
 }
 */
 
+inline raw_ostream &operator<<(raw_ostream &out, const Pointer2Set &ps){
+        out << "{ ";
+        for(auto i = ps.begin(), e = ps.end(); i != e; i++){
+                out << i->first->getName() << " " << i->first << " -> ";
+                out << "( ";
+                for(auto si = i->second.begin(), se = i->second.end(); si != se; si++){
+                        if(si != i->second.begin())
+                                errs() << ", ";
+                        out << (*si)->getName() << " " << (*si);
+                }
+                out << " ) | ";
+        }
+        out << "}";
+        return out;
+}
+
+inline raw_ostream &operator<<(raw_ostream &out, const PointerInfo &pi)
+{
+        out << "\tp2set: " << pi.p2set << " ";
+        out << "p2set_field: " << pi.p2set_field << "\n";
+        return out;
+}
+
 
 class FuncPtrVisitor : public DataflowVisitor<struct PointerInfo> {
 public:
@@ -68,16 +91,14 @@ public:
 
 
     PointerInfo getArgs(Function* fn){
-        errs()<<fn->getName() << "\n";
+        errs()<<"getArgs:"<<arg_p2s.count(fn)<<"\n";
+        errs()<<arg_p2s[fn];
         return arg_p2s[fn];
     }
 
     void mergeInputDF(Function* fn,BasicBlock* bb,PointerInfo* bbinval){
-        printf("before merge:%ld\n",bbinval->p2set.size());
         PointerInfo in_args_p2s = getArgs(fn);
-        printf("GET arg:%ld\n",in_args_p2s.p2set.size());
         merge(bbinval,in_args_p2s);
-        printf("after merge:%ld\n",bbinval->p2set.size());
     }
 
     void compDFVal(Instruction *inst, PointerInfo* dfval) override {
@@ -104,11 +125,14 @@ public:
     }
 
     void handleReturnInst(ReturnInst* retInst,PointerInfo* dfval){
+        errs()<<"Return:\n";
+        errs()<<"\tdfval:"<<*dfval;
         Function* func = retInst->getFunction();
         Value* retValue = retInst->getReturnValue();
         if(!retValue || !retValue->getType()->isPointerTy()) return;
         //把所有返回值放进ret_p2s
         ret_p2s[func].insert(dfval->p2set[retValue].begin(),dfval->p2set[retValue].end());
+        errs() << "\treturn:"<<retValue->getName() << " " << dfval->p2set <<"\n";
     }
 
     void handleGetElementPtrInst(GetElementPtrInst* gepInst,PointerInfo* dfval){
@@ -124,26 +148,32 @@ public:
     void handleLoadInst(LoadInst* loadInst,PointerInfo* dfval){
         errs()<<"Load:\n";
         loadInst->dump();
+        errs()<<*dfval;
         Value* target_value = loadInst->getPointerOperand();
         dfval->p2set[loadInst].clear();
         std::set<Value*> values;
         if(GetElementPtrInst* gepInst = dyn_cast<GetElementPtrInst>(target_value)){
             Value* ptr = gepInst->getPointerOperand();
             values = dfval->p2set[ptr];
+            ptr->dump();
             if(dfval->p2set[ptr].empty()){
                 values = dfval->p2set_field[ptr];
                 dfval->p2set[loadInst].insert(values.begin(),values.end());
+                errs()<<"!2"<<*dfval;
             } else {
                 values = dfval->p2set[ptr];
                 for(auto vi = values.begin(),ve = values.end();vi != ve; vi++){
                     Value* v = *vi;
                     dfval->p2set[loadInst].insert(dfval->p2set_field[v].begin(),dfval->p2set_field[v].end());
                 }
+                errs()<<"!!"<<*dfval;
             }
         } else {
             values = dfval->p2set[target_value];
             dfval->p2set[loadInst].insert(values.begin(),values.end());
+                errs()<<"!1"<<*dfval;
         }
+        errs()<<*dfval;
 
     }
 
@@ -199,17 +229,14 @@ public:
     }
 
     void handlePHINode(PHINode* phyNode,PointerInfo* dfval){
-        errs()<<"handle handlePHINode\n";
         dfval->p2set[phyNode].clear();
         for(Value* v : phyNode->incoming_values()){
             if(Function* func = dyn_cast<Function>(v)){
                 dfval->p2set[phyNode].insert(func);
-                errs()<<"handlePHINode:"<<dfval->p2set[phyNode].size()<<"\n";
             } else if(v->getType()->isPointerTy()){
                 dfval->p2set[phyNode].insert(dfval->p2set[v].begin(),dfval->p2set[v].end());
             }
         }
-        errs()<<"handle handlePHINode finished"<<"\n";
     }
 
 
@@ -223,11 +250,11 @@ public:
         errs()<<"Call:\n";
 
         callInst->dump();
+        errs()<<"dfval:"<<*dfval;
         //得出所有可能调用的函数
         std::set<Function*> callees;
         callees = getFuncByValue(callInst->getCalledOperand(),dfval);
         for(auto ci = callees.begin(),ce = callees.end();ci != ce;ci++){
-            errs()<<"push\n";
             Function* func = *ci;
             result[line].push_back(func);
         }
@@ -241,10 +268,11 @@ public:
                     caller_args.p2set[arg].insert(func);
                 } else {
                     caller_args.p2set[arg].insert(dfval->p2set[arg].begin(),dfval->p2set[arg].end());
-                    printf("insert %ld\n",caller_args.p2set[arg].size());
+                    caller_args.p2set_field[arg].insert(dfval->p2set_field[arg].begin(),dfval->p2set_field[arg].end());
                 }
             }
         }
+        errs() << "\t caller_args:" <<caller_args;
         if(caller_args.p2set.empty()){ //没有指针参数的话就直接返回
             printf("Empty!\n");
             return;
@@ -257,9 +285,10 @@ public:
                 if(caller_arg->getType()->isPointerTy()){
                     Value* callee_arg = callee->arg_begin() + i;
                     arg_p2s[callee].p2set[callee_arg].insert(caller_args.p2set[caller_arg].begin(),caller_args.p2set[caller_arg].end());
-                    printf("insert args:%ld\n",caller_args.p2set.count(caller_arg));
+                    arg_p2s[callee].p2set_field[callee_arg].insert(caller_args.p2set_field[caller_arg].begin(),caller_args.p2set_field[caller_arg].end());
                 }
             }
+            errs()<<"\t" << callee->getName() << "insert args:"<<arg_p2s[callee];
         }
 
         // 获取返回值
@@ -270,7 +299,7 @@ public:
             }
         }
         if(old_arg_p2s != arg_p2s){
-            printf("change\n");
+            errs()<<"======================change=========================\n";
             change = true;
         }
     }
