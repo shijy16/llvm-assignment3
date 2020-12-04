@@ -103,7 +103,7 @@ if __name__ == '__main__':
     if len(sys.argv) == 2:
         if sys.argv[1] == 'build':
             build()
-        if sys.argv[1] == 'testall':
+        elif sys.argv[1] == 'testall':
             check_all()
         elif len(sys.argv[1]) == 6:
             check(sys.argv[1])

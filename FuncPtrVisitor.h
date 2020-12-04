@@ -36,12 +36,12 @@ inline raw_ostream &operator<<(raw_ostream &out, const PointerInfo &info) {
 inline raw_ostream &operator<<(raw_ostream &out, const Pointer2Set &ps){
         out << "{ ";
         for(auto i = ps.begin(), e = ps.end(); i != e; i++){
-                out << i->first->getName() << " " << i->first << " -> ";
+                out << i->first->getName() << ". " << i->first << " -> ";
                 out << "( ";
                 for(auto si = i->second.begin(), se = i->second.end(); si != se; si++){
                         if(si != i->second.begin())
                                 errs() << ", ";
-                        out << (*si)->getName() << " " << (*si);
+                        out << (*si)->getName() << ". " << (*si);
                 }
                 out << " ) | ";
         }
@@ -59,11 +59,13 @@ inline raw_ostream &operator<<(raw_ostream &out, const PointerInfo &pi)
 
 class FuncPtrVisitor : public DataflowVisitor<struct PointerInfo> {
 public:
-    std::map<Function*,PointerInfo> arg_p2s;
+    std::map<Function*,PointerInfo> arg_p2s;        //给被调用函数传递的参数的p2s
+    std::map<Function*,PointerInfo> ret_arg_p2s; //被调用函数返回时，指针参数的p2s需要记录下来给调用函数.
+    std::map<Function*,std::set<Function*>> caller_map; //记录被调用函数的调用者
     std::map<Function*,std::set<Value*>> ret_p2s;
     std::map<int, std::list<Function *>> result;  // call指令对应到哪些函数
     bool change = false;
-    FuncPtrVisitor() :result(),arg_p2s(),ret_p2s() {}
+    FuncPtrVisitor() :result(),arg_p2s(),ret_p2s(),ret_arg_p2s(),caller_map() {}
     void merge(PointerInfo *dest, const PointerInfo &src) override {
         for (Pointer2Set::const_iterator ii = src.p2set.begin(),
                 ie = src.p2set.end();
@@ -91,7 +93,7 @@ public:
 
 
     PointerInfo getArgs(Function* fn){
-        errs()<<"getArgs:"<<arg_p2s.count(fn)<<"\n";
+        errs()<<"getArgs:"<<"\n";
         errs()<<arg_p2s[fn];
         return arg_p2s[fn];
     }
@@ -129,9 +131,16 @@ public:
         errs()<<"\tdfval:"<<*dfval;
         Function* func = retInst->getFunction();
         Value* retValue = retInst->getReturnValue();
+        //把所有指针参数相关的放进ret_arg_p2s
+        for(auto i:arg_p2s[func].p2set){
+            ret_arg_p2s[func].p2set[i.first].insert(dfval->p2set[i.first].begin(),dfval->p2set[i.first].end());
+            ret_arg_p2s[func].p2set_field[i.first].insert(dfval->p2set_field[i.first].begin(),dfval->p2set_field[i.first].end());
+        }
+        errs()<<"ret_arg_p2s :"<<ret_arg_p2s[func];
         if(!retValue || !retValue->getType()->isPointerTy()) return;
         //把所有返回值放进ret_p2s
         ret_p2s[func].insert(dfval->p2set[retValue].begin(),dfval->p2set[retValue].end());
+
         errs() << "\treturn:"<<retValue->getName() << " " << dfval->p2set <<"\n";
     }
 
@@ -159,19 +168,16 @@ public:
             if(dfval->p2set[ptr].empty()){
                 values = dfval->p2set_field[ptr];
                 dfval->p2set[loadInst].insert(values.begin(),values.end());
-                errs()<<"!2"<<*dfval;
             } else {
                 values = dfval->p2set[ptr];
                 for(auto vi = values.begin(),ve = values.end();vi != ve; vi++){
                     Value* v = *vi;
                     dfval->p2set[loadInst].insert(dfval->p2set_field[v].begin(),dfval->p2set_field[v].end());
                 }
-                errs()<<"!!"<<*dfval;
             }
         } else {
             values = dfval->p2set[target_value];
             dfval->p2set[loadInst].insert(values.begin(),values.end());
-                errs()<<"!1"<<*dfval;
         }
         errs()<<*dfval;
 
@@ -180,9 +186,10 @@ public:
 
     void handleStoreInst(StoreInst* storeInst,PointerInfo* dfval){
         errs()<<"Store:\n";
+        storeInst->dump();
+        errs()<<*dfval;
         Value* store_value = storeInst->getValueOperand();
         Value* target_value = storeInst->getPointerOperand();
-        storeInst->dump();
         //获取要存储的值的values
         std::set<Value*> store_values;
         if(dfval->p2set[store_value].empty()){
@@ -209,8 +216,6 @@ public:
             if(dfval->p2set[ptr].empty()){
                 dfval->p2set_field[ptr].clear();
                 dfval->p2set_field[ptr].insert(store_values.begin(),store_values.end());
-                ptr->dump();
-                errs()<<dfval->p2set_field[ptr].size() <<"\n";
             } else {
                 std::set<Value*> values = dfval->p2set[ptr];
                 for(auto vi = values.begin(),ve = values.end();vi != ve; vi++){
@@ -222,9 +227,8 @@ public:
         } else { //否则直接存
             dfval->p2set[target_value].clear();
             dfval->p2set[target_value].insert(store_values.begin(),store_values.end());
-            errs()<<dfval->p2set[target_value].size()<<"\n";
         }
-        errs()<<"store end\n";
+        errs()<<*dfval;
 
     }
 
@@ -257,6 +261,7 @@ public:
         for(auto ci = callees.begin(),ce = callees.end();ci != ce;ci++){
             Function* func = *ci;
             result[line].push_back(func);
+            caller_map[func].insert(callInst->getFunction());
         }
 
         //计算所有参数的pts
@@ -268,7 +273,8 @@ public:
                     caller_args.p2set[arg].insert(func);
                 } else {
                     caller_args.p2set[arg].insert(dfval->p2set[arg].begin(),dfval->p2set[arg].end());
-                    caller_args.p2set_field[arg].insert(dfval->p2set_field[arg].begin(),dfval->p2set_field[arg].end());
+                    if(!dfval->p2set_field[arg].empty())
+                        caller_args.p2set_field[arg].insert(dfval->p2set_field[arg].begin(),dfval->p2set_field[arg].end());
                 }
             }
         }
@@ -276,6 +282,23 @@ public:
         if(caller_args.p2set.empty()){ //没有指针参数的话就直接返回
             printf("Empty!\n");
             return;
+        }
+
+        std::map<Function*,std::map<Value*,Value*>> argmap;  //callee arg,caller arg相互映射
+        std::set<Value*> cr_arg_set;
+        std::set<Value*> ce_arg_set;
+        for(auto ci = callees.begin(),ce = callees.end();ci != ce;ci++){
+            Function* callee = *ci;
+            for(unsigned i = 0; i < callInst->getNumArgOperands();i++){
+                Value* caller_arg = callInst->getArgOperand(i);
+                if(caller_arg->getType()->isPointerTy()){
+                    Value* callee_arg = callee->arg_begin() + i;
+                    cr_arg_set.insert(caller_arg);
+                    ce_arg_set.insert(callee_arg);
+                    argmap[callee][callee_arg] = caller_arg;
+                    argmap[callee][caller_arg] = callee_arg;
+                }
+            }
         }
         //放进每个callee对应参数的arg_p2s
         for(auto ci = callees.begin(),ce = callees.end();ci != ce;ci++){
@@ -285,11 +308,59 @@ public:
                 if(caller_arg->getType()->isPointerTy()){
                     Value* callee_arg = callee->arg_begin() + i;
                     arg_p2s[callee].p2set[callee_arg].insert(caller_args.p2set[caller_arg].begin(),caller_args.p2set[caller_arg].end());
-                    arg_p2s[callee].p2set_field[callee_arg].insert(caller_args.p2set_field[caller_arg].begin(),caller_args.p2set_field[caller_arg].end());
+                    //搜索
+                    std::set<Value*> worklist;
+                    for(auto* v:caller_args.p2set[caller_arg]){
+                        Value* vv = &*v;
+                        worklist.insert(vv);
+                        if(!dfval->p2set[v].empty()){
+                            arg_p2s[callee].p2set[v].insert(dfval->p2set[v].begin(),dfval->p2set[v].end());
+                        }
+                        if(!dfval->p2set_field[v].empty()){
+                            arg_p2s[callee].p2set_field[v].insert(dfval->p2set_field[v].begin(),dfval->p2set_field[v].end());
+                        }
+                    }
+                    if(!caller_args.p2set_field[caller_arg].empty())
+                        arg_p2s[callee].p2set_field[callee_arg].insert(caller_args.p2set_field[caller_arg].begin(),caller_args.p2set_field[caller_arg].end());
                 }
             }
             errs()<<"\t" << callee->getName() << "insert args:"<<arg_p2s[callee];
         }
+        //获取被调用函数返回后的指针参数的p2s，并更新
+        errs()<<"\tret args:\n";
+        errs()<<*dfval;
+        for(auto ci = callees.begin(),ce = callees.end();ci != ce;ci++){
+            Function* callee = *ci;
+            errs()<<ret_arg_p2s[callee];
+            for(unsigned i = 0; i < callInst->getNumArgOperands();i++){
+                Value* caller_arg = callInst->getArgOperand(i);
+                if(caller_arg->getType()->isPointerTy()){
+                    Value* callee_arg = callee->arg_begin() + i;
+                    errs()<<caller_arg->getName()<<" "<<callee_arg->getName()<<"\n";
+                    dfval->p2set[caller_arg].clear();
+                    for(auto vv : ret_arg_p2s[callee].p2set[callee_arg]){
+                        Value* v = &*vv;
+                        if(ce_arg_set.count(v) > 0){
+                            dfval->p2set[caller_arg].insert(argmap[callee][v]);
+                        } else {
+                            dfval->p2set[caller_arg].insert(v);
+                        }
+                    }
+                    dfval->p2set_field[caller_arg].clear(); // = ret_arg_p2s[callee].p2set_field[callee_arg];
+                    for(auto vv : ret_arg_p2s[callee].p2set_field[callee_arg]){
+                        Value* v = &*vv;
+                        if(ce_arg_set.count(v) > 0){
+                            dfval->p2set_field[caller_arg].insert(argmap[callee][v]);
+                        } else {
+                            dfval->p2set_field[caller_arg].insert(v);
+                        }
+                    }
+
+                }
+            }
+        }
+        errs()<<*dfval;
+
 
         // 获取返回值
         for(auto ci = callees.begin(),ce = callees.end();ci != ce;ci++){
@@ -299,7 +370,7 @@ public:
             }
         }
         if(old_arg_p2s != arg_p2s){
-            errs()<<"======================change=========================\n";
+            errs()<<"CHANGE!!!!!!\n";
             change = true;
         }
     }
