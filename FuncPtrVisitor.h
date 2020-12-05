@@ -162,6 +162,7 @@ public:
         if(retValue && retValue->getType()->isPointerTy()){
             auto old = ret_p2s[func];
             ret_p2s[func].insert(dfval->p2set[retValue].begin(),dfval->p2set[retValue].end());
+
             if(ret_p2s[func] != old){
                 change_ = true;
             }
@@ -186,7 +187,7 @@ public:
     }
 
     void handleLoadInst(LoadInst* loadInst,PointerInfo* dfval){
-        errs()<<"Load:\n";
+        errs()<<"Load:"<<loadInst<<"\n";
         loadInst->dump();
         errs()<<*dfval;
         Value* target_value = loadInst->getPointerOperand();
@@ -196,6 +197,7 @@ public:
             Value* ptr = gepInst->getPointerOperand();
             values = dfval->p2set[ptr];
             ptr->dump();
+            errs()<<ptr<<"\n";
             if(dfval->p2set[ptr].empty()){
                 values = dfval->p2set_field[ptr];
                 dfval->p2set[loadInst].insert(values.begin(),values.end());
@@ -216,11 +218,11 @@ public:
 
 
     void handleStoreInst(StoreInst* storeInst,PointerInfo* dfval){
-        errs()<<"Store:\n";
-        storeInst->dump();
-        errs()<<*dfval;
         Value* store_value = storeInst->getValueOperand();
         Value* target_value = storeInst->getPointerOperand();
+        errs()<<"Store:s,v,"<<store_value<<target_value<<"\n";
+        storeInst->dump();
+        errs()<<*dfval;
         //获取要存储的值的values
         std::set<Value*> store_values;
         if(dfval->p2set[store_value].empty()){
@@ -280,7 +282,7 @@ public:
         std::map<Function*,PointerInfo> old_arg_p2s = arg_p2s;
         int line = callInst->getDebugLoc().getLine();
         result[line].clear();
-        errs()<<"Call:\n";
+        errs()<<"Call:"<<callInst<<"\n";
 
         callInst->dump();
         errs()<<"dfval:"<<*dfval;
@@ -302,8 +304,7 @@ public:
                     caller_args.p2set[arg].insert(func);
                 } else {
                     caller_args.p2set[arg].insert(dfval->p2set[arg].begin(),dfval->p2set[arg].end());
-                    if(!dfval->p2set_field[arg].empty())
-                        caller_args.p2set_field[arg].insert(dfval->p2set_field[arg].begin(),dfval->p2set_field[arg].end());
+                    caller_args.p2set_field[arg].insert(dfval->p2set_field[arg].begin(),dfval->p2set_field[arg].end());
                 }
             }
         }
@@ -339,30 +340,29 @@ public:
                     arg_p2s[callee].p2set_field[callee_arg].insert(caller_args.p2set_field[caller_arg].begin(),caller_args.p2set_field[caller_arg].end());
                     errs()<<"\t" << callee->getName() << "insert args:"<<arg_p2s[callee];
                     //搜索
-                    std::set<Value*> worklist;
+                    std::set<Value*> wl;
                     for(auto* v:caller_args.p2set[caller_arg]){
                         Value* vv = &*v;
-                        worklist.insert(vv);
+                        wl.insert(vv);
                     }
                     for(auto* v:caller_args.p2set_field[caller_arg]){
                         Value* vv = &*v;
-                        worklist.insert(vv);
+                        wl.insert(vv);
                     }
-                    while(!worklist.empty()){
-                        Value* v = *worklist.begin();
+                    std::set<Value*> oldlist;
+                    while(!wl.empty()){
+                        Value* v = *wl.begin();
                         v->dump();
-                        errs()<<"\n11111111111111111111111111111111111111111\n";
-                        worklist.erase(worklist.begin());
-                        if(!dfval->p2set[v].empty() && arg_p2s[callee].p2set[v].empty()){
-                            errs()<<"1insert!!!!!!!!!!!\n";
-                            arg_p2s[callee].p2set[v].insert(dfval->p2set[v].begin(),dfval->p2set[v].end());
-                            worklist.insert(dfval->p2set[v].begin(),dfval->p2set[v].end());
+                        wl.erase(wl.begin());
+                        if(oldlist.count(v)){
+                            continue;
                         }
-                        if(!dfval->p2set_field[v].empty() && arg_p2s[callee].p2set_field[v].empty()){
+                        oldlist.insert(v);
+                            arg_p2s[callee].p2set[v].insert(dfval->p2set[v].begin(),dfval->p2set[v].end());
+                            wl.insert(dfval->p2set[v].begin(),dfval->p2set[v].end());
                             errs()<<"insert!!!!!!!!!!!\n";
                             arg_p2s[callee].p2set_field[v].insert(dfval->p2set_field[v].begin(),dfval->p2set_field[v].end());
-                            worklist.insert(dfval->p2set_field[v].begin(),dfval->p2set_field[v].end());
-                        }
+                            wl.insert(dfval->p2set_field[v].begin(),dfval->p2set_field[v].end());
                         
                     }
                 }
@@ -495,6 +495,10 @@ public:
         for (std::map<int, std::list<Function *>>::iterator it = result.begin();
              it != result.end(); ++it) {
             errs() << it->first << " : ";
+            if(it->second.empty()){
+                errs()<<"\n";
+                continue;
+            }
             it->second.sort();
             it->second.unique();
             std::list<Function *>::iterator funcEnd = it->second.end();

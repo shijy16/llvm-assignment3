@@ -57,7 +57,6 @@ struct FuncPtrPass : public ModulePass {
         M.dump();
         errs() << "------------------------------\n";
         */
-        M.dump();
         /*
         DataflowResult<PointerInfo>::Type result;
         FuncPtrVisitor visitor;
@@ -75,6 +74,7 @@ struct FuncPtrPass : public ModulePass {
             }
         }
         */
+        //force stop
         int count = 0;
         DataflowResult<PointerInfo>::Type result;
         FuncPtrVisitor visitor;
@@ -83,7 +83,7 @@ struct FuncPtrPass : public ModulePass {
                 mi != me;mi++){
             worklist.insert(&*mi);
         }
-        while(!worklist.empty()){
+        while(!worklist.empty() && count <50){
             count++;
             Function *func = *(worklist.begin());
             worklist.erase(worklist.begin());
@@ -93,6 +93,7 @@ struct FuncPtrPass : public ModulePass {
             worklist.insert(visitor.worklist.begin(),visitor.worklist.end());
             visitor.worklist.clear();
         }
+        M.dump();
         visitor.printResult();
 
         return false;
