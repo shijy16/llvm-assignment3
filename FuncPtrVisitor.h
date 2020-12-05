@@ -112,7 +112,12 @@ public:
 
     void compDFVal(Instruction *inst, PointerInfo* dfval) override {
         if (isa<DbgInfoIntrinsic>(inst)) return;
-        if (isa<IntrinsicInst>(inst)) return;
+        if (isa<IntrinsicInst>(inst)){
+            if (MemCpyInst *memCpyInst = dyn_cast<MemCpyInst>(inst)){
+                handleMemCpyInst(memCpyInst,dfval);
+            }
+            return;
+        }
         if (CallInst *callInst = dyn_cast<CallInst>(inst)){
             //std::cout<<"CallInst:"<<callInst->getDebugLoc().getLine()<<std::endl;
             handleCallInst(callInst,dfval);
@@ -131,6 +136,20 @@ public:
         } else if (ReturnInst* returnInst = dyn_cast<ReturnInst>(inst)){
             handleReturnInst(returnInst,dfval);
         }
+    }
+
+    void handleMemCpyInst(MemCpyInst* mcInst,PointerInfo* dfval){
+        BitCastInst* dst_ins = dyn_cast<BitCastInst>(mcInst->getArgOperand(0));
+        if(!dst_ins) return;
+        Value* dst = dst_ins->getOperand(0);
+        BitCastInst* src_ins = dyn_cast<BitCastInst>(mcInst->getArgOperand(1));
+        if(!src_ins) return;
+        Value* src = src_ins->getOperand(0);
+        dfval->p2set[dst].clear();
+        dfval->p2set[dst].insert(dfval->p2set[src].begin(),dfval->p2set[src].end());
+        dfval->p2set_field[dst].clear();
+        dfval->p2set_field[dst].insert(dfval->p2set_field[src].begin(),dfval->p2set_field[src].end());
+
     }
 
     void handleReturnInst(ReturnInst* retInst,PointerInfo* dfval){
