@@ -61,8 +61,10 @@ class DataflowVisitor {
             }
         }
     }
-    
-    virtual void compDFVal(BasicBlock *block, typename DataflowInsResult<T>::Type *dfval, bool isforward) {
+
+    virtual void compDFVal(BasicBlock *block,
+                           typename DataflowInsResult<T>::Type *dfval,
+                           bool isforward) {
         if (isforward == true) {
             for (BasicBlock::iterator ii = block->begin(), ie = block->end();
                  ii != ie; ++ii) {
@@ -79,15 +81,16 @@ class DataflowVisitor {
         }
     }
 
-    virtual void mergeInputDF(Function* func,BasicBlock* block,T* bbinval){};
+    virtual void mergeInputDF(Function *func, BasicBlock *block, T *bbinval){};
     ///
     /// Dataflow Function invoked for each instruction
     ///
     /// @inst the Instruction
     /// @dfval the input dataflow value
     /// @return true if dfval changed
-    virtual void compDFVal(Instruction *inst, T *dfval) {};
-    virtual void compDFVal(Instruction *inst, typename DataflowInsResult<T>::Type *dfval) {};
+    virtual void compDFVal(Instruction *inst, T *dfval){};
+    virtual void compDFVal(Instruction *inst,
+                           typename DataflowInsResult<T>::Type *dfval){};
 
     ///
     /// Merge of two dfvals, dest will be ther merged result
@@ -96,15 +99,13 @@ class DataflowVisitor {
     virtual void merge(T *dest, const T &src) = 0;
 };
 
-
-
-Instruction* getFisrtIns(BasicBlock* block){
-    Instruction* ins = &*(block->begin());
+Instruction *getFisrtIns(BasicBlock *block) {
+    Instruction *ins = &*(block->begin());
     return ins;
 }
 
-Instruction* getLastIns(BasicBlock* block){
-    Instruction* ins = &*(--(block->end()));
+Instruction *getLastIns(BasicBlock *block) {
+    Instruction *ins = &*(--(block->end()));
     return ins;
 }
 
@@ -127,9 +128,9 @@ void compForwardDataflow(Function *fn, DataflowVisitor<T> *visitor,
     for (Function::iterator bi = fn->begin(); bi != fn->end(); ++bi) {
         BasicBlock *bb = &*bi;
         worklist.insert(bb);
-        for (BasicBlock::iterator ii = bb->begin(), ie = bb->end(); ii != ie; ++ii){
-            Instruction *ins = &*ii;
-            result->insert(std::make_pair(ins, std::make_pair(initval, initval)));
+        for (BasicBlock::iterator ii = bb->begin(), ie = bb->end(); ii != ie;
+++ii){ Instruction *ins = &*ii; result->insert(std::make_pair(ins,
+std::make_pair(initval, initval)));
         }
     }
     // Iteratively compute the dataflow result
@@ -146,7 +147,7 @@ void compForwardDataflow(Function *fn, DataflowVisitor<T> *visitor,
 
         T bbexitval = (*result)[getLastIns(bb)].second;
         (*result)[getFisrtIns(bb)].first = bbinval;
-        
+
         //计算一遍基本块内控制流
         visitor->compDFVal(bb, result, false);
 
@@ -157,7 +158,7 @@ void compForwardDataflow(Function *fn, DataflowVisitor<T> *visitor,
              si++) {
             worklist.insert(*si);
         }
-        
+
     }
     return;
 }
@@ -180,18 +181,19 @@ void compForwardDataflow(Function *fn, DataflowVisitor<T> *visitor,
         T bbinval = (*result)[bb].first;
         //如果是函数第一个块，去拿它所有参数的pts然后合并
 
-        if(bb == &fn->getEntryBlock()){
+        if (bb == &fn->getEntryBlock()) {
 #ifdef DEBUG
-            errs()<< "\n-------------------" <<fn->getName() << "------------------\n";
+            errs() << "\n-------------------" << fn->getName()
+                   << "------------------\n";
 #endif
-            visitor->mergeInputDF(fn,bb,&bbinval);
+            visitor->mergeInputDF(fn, bb, &bbinval);
         } else {
-        //否则合并所有前继块
+            //否则合并所有前继块
             bbinval.p2set.clear();
             bbinval.p2set_field.clear();
             for (auto pi = pred_begin(bb), pe = pred_end(bb); pi != pe; pi++) {
 #ifdef DEBUG
-                errs()<<"PRED!!!:"<<(*result)[*pi].second;
+                errs() << "PRED!!!:" << (*result)[*pi].second;
 #endif
                 visitor->merge(&bbinval, (*result)[*pi].second);
             }
@@ -200,10 +202,10 @@ void compForwardDataflow(Function *fn, DataflowVisitor<T> *visitor,
         (*result)[bb].first = bbinval;
         //计算一遍基本块内控制流
 #ifdef DEBUG
-        errs()<< "************NEW BLOCK*****************\n";
-        errs()<<"INPUT:"<<bbinval;
+        errs() << "************NEW BLOCK*****************\n";
+        errs() << "INPUT:" << bbinval;
 #endif
-        visitor->compDFVal(bb,&bbinval, true);
+        visitor->compDFVal(bb, &bbinval, true);
 
         //算出来最后一个out pointer2set变了的话，所有后继都要重算
         if (bbinval == (*result)[bb].second) continue;

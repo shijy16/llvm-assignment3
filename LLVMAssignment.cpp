@@ -26,8 +26,8 @@
 #include <llvm/Transforms/Scalar.h>
 #include <llvm/Transforms/Utils.h>
 
-#include "Liveness.h"
 #include "FuncPtrVisitor.h"
+#include "Liveness.h"
 using namespace llvm;
 static ManagedStatic<LLVMContext> GlobalContext;
 static LLVMContext &getGlobalContext() { return *GlobalContext; }
@@ -74,23 +74,22 @@ struct FuncPtrPass : public ModulePass {
             }
         }
         */
-        //force stop
+        // force stop
         int count = 0;
         DataflowResult<PointerInfo>::Type result;
         FuncPtrVisitor visitor;
-        std::set<Function*> worklist;
-        for(Module::iterator mi = M.begin(),me = M.end();
-                mi != me;mi++){
+        std::set<Function *> worklist;
+        for (Module::iterator mi = M.begin(), me = M.end(); mi != me; mi++) {
             worklist.insert(&*mi);
         }
-        while(!worklist.empty() && count <50){
+        while (!worklist.empty() && count < 50) {
             count++;
             Function *func = *(worklist.begin());
             worklist.erase(worklist.begin());
             PointerInfo initval;
             compForwardDataflow(func, &visitor, &result, initval);
             visitor.arg_p2s[func].p2set.clear();
-            worklist.insert(visitor.worklist.begin(),visitor.worklist.end());
+            worklist.insert(visitor.worklist.begin(), visitor.worklist.end());
             visitor.worklist.clear();
         }
 #ifdef DEBUG
@@ -99,7 +98,6 @@ struct FuncPtrPass : public ModulePass {
         visitor.printResult();
 
         return false;
-
     }
 };
 
@@ -137,10 +135,10 @@ int main(int argc, char **argv) {
     Passes.add(llvm::createPromoteMemoryToRegisterPass());
 
     /// Your pass to print Function and Call Instructions
-    //Passes.add(new Liveness());
+    // Passes.add(new Liveness());
     Passes.add(new FuncPtrPass());
     Passes.run(*M.get());
 #ifndef NDEBUG
-    //system("pause");
+    // system("pause");
 #endif
 }
