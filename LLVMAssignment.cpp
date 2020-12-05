@@ -26,6 +26,7 @@
 #include <llvm/Transforms/Scalar.h>
 #include <llvm/Transforms/Utils.h>
 
+#include "FuncPtrVisitor.h"
 #include "Liveness.h"
 using namespace llvm;
 static ManagedStatic<LLVMContext> GlobalContext;
@@ -50,10 +51,52 @@ struct FuncPtrPass : public ModulePass {
     FuncPtrPass() : ModulePass(ID) {}
 
     bool runOnModule(Module &M) override {
+        /*
         errs() << "Hello: ";
         errs().write_escaped(M.getName()) << '\n';
         M.dump();
         errs() << "------------------------------\n";
+        */
+        /*
+        DataflowResult<PointerInfo>::Type result;
+        FuncPtrVisitor visitor;
+        std::set<Function*> worklist;
+        visitor.change = true;
+        int turn = 0;
+        while(visitor.change && turn++ < 50){
+            errs()<<"\n\n\n===================="<<turn<<"=================\n";
+            visitor.change = false;
+            for(Module::iterator mi = M.begin(),me = M.end();
+                    mi != me;mi++){
+                Function* func = &*mi;
+                PointerInfo initval;
+                compForwardDataflow(func, &visitor, &result, initval);
+            }
+        }
+        */
+        // force stop
+        int count = 0;
+        DataflowResult<PointerInfo>::Type result;
+        FuncPtrVisitor visitor;
+        std::set<Function *> worklist;
+        for (Module::iterator mi = M.begin(), me = M.end(); mi != me; mi++) {
+            worklist.insert(&*mi);
+        }
+        while (!worklist.empty() && count < 50) {
+            count++;
+            Function *func = *(worklist.begin());
+            worklist.erase(worklist.begin());
+            PointerInfo initval;
+            compForwardDataflow(func, &visitor, &result, initval);
+            visitor.arg_p2s[func].p2set.clear();
+            worklist.insert(visitor.worklist.begin(), visitor.worklist.end());
+            visitor.worklist.clear();
+        }
+#ifdef DEBUG
+        M.dump();
+#endif
+        visitor.printResult();
+
         return false;
     }
 };
@@ -92,10 +135,10 @@ int main(int argc, char **argv) {
     Passes.add(llvm::createPromoteMemoryToRegisterPass());
 
     /// Your pass to print Function and Call Instructions
-    Passes.add(new Liveness());
-    // Passes.add(new FuncPtrPass());
+    // Passes.add(new Liveness());
+    Passes.add(new FuncPtrPass());
     Passes.run(*M.get());
 #ifndef NDEBUG
-    //system("pause");
+    // system("pause");
 #endif
 }
