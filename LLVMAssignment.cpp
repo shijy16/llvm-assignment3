@@ -93,7 +93,9 @@ struct FuncPtrPass : public ModulePass {
             worklist.insert(visitor.worklist.begin(),visitor.worklist.end());
             visitor.worklist.clear();
         }
+#ifdef DEBUG
         M.dump();
+#endif
         visitor.printResult();
 
         return false;

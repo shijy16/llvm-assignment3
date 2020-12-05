@@ -181,22 +181,28 @@ void compForwardDataflow(Function *fn, DataflowVisitor<T> *visitor,
         //如果是函数第一个块，去拿它所有参数的pts然后合并
 
         if(bb == &fn->getEntryBlock()){
+#ifdef DEBUG
             errs()<< "\n-------------------" <<fn->getName() << "------------------\n";
+#endif
             visitor->mergeInputDF(fn,bb,&bbinval);
         } else {
         //否则合并所有前继块
             bbinval.p2set.clear();
             bbinval.p2set_field.clear();
             for (auto pi = pred_begin(bb), pe = pred_end(bb); pi != pe; pi++) {
+#ifdef DEBUG
                 errs()<<"PRED!!!:"<<(*result)[*pi].second;
+#endif
                 visitor->merge(&bbinval, (*result)[*pi].second);
             }
         }
         T old_bbexitval = (*result)[bb].second;
         (*result)[bb].first = bbinval;
         //计算一遍基本块内控制流
+#ifdef DEBUG
         errs()<< "************NEW BLOCK*****************\n";
         errs()<<"INPUT:"<<bbinval;
+#endif
         visitor->compDFVal(bb,&bbinval, true);
 
         //算出来最后一个out pointer2set变了的话，所有后继都要重算

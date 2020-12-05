@@ -66,6 +66,12 @@ def check(target,out=True):
     for i in range(len(ans)):
         a = ans[i].replace(' ','')
         r = res[i-len(ans)].replace(' ','')
+        a = a.split(':')[1]
+        r = r.split(':')[1]
+        a = a.split(',')
+        r = r.split(',')
+        a = set(a)
+        r = set(r)
         if(a != r):
             co = False
             break

@@ -92,8 +92,10 @@ public:
 
 
     PointerInfo getArgs(Function* fn){
+#ifdef DEBUG
         errs()<<"getArgs:"<<"\n";
         errs()<<arg_p2s[fn];
+#endif
         return arg_p2s[fn];
     }
 
@@ -153,12 +155,16 @@ public:
     }
 
     void handleReturnInst(ReturnInst* retInst,PointerInfo* dfval){
+#ifdef DEBUG
         errs()<<"Return:\n";
         errs()<<"\tdfval:"<<*dfval;
+#endif
         Function* func = retInst->getFunction();
         Value* retValue = retInst->getReturnValue();
+#ifdef DEBUG
         errs()<<"arg_p2s:"<<arg_p2s[func];
         errs()<<"ret_arg_p2s:"<<ret_arg_p2s[func];
+#endif
         auto old_ret_arg_p2s = ret_arg_p2s[func];
         //把所有指针参数相关的放进ret_arg_p2s
         for(auto i:arg_p2s[func].p2set){
@@ -170,10 +176,11 @@ public:
             ret_arg_p2s[func].p2set_field[i.first].insert(dfval->p2set_field[i.first].begin(),dfval->p2set_field[i.first].end());
         }
         bool change_ = false;
+#ifdef DEBUG
         errs()<<"ret_arg_p2s :"<<ret_arg_p2s[func];
         errs()<<"old_ret_arg_p2s :"<<old_ret_arg_p2s << !(ret_arg_p2s[func] == old_ret_arg_p2s);
+#endif
         if(!(ret_arg_p2s[func] == old_ret_arg_p2s)){
-            errs()<<"!!!!!!!!!!\n";
             change_ = true;
         }
         //if(!retValue || !retValue->getType()->isPointerTy()) return;
@@ -206,17 +213,21 @@ public:
     }
 
     void handleLoadInst(LoadInst* loadInst,PointerInfo* dfval){
+#ifdef DEBUG
         errs()<<"Load:"<<loadInst<<"\n";
         loadInst->dump();
         errs()<<*dfval;
+#endif
         Value* target_value = loadInst->getPointerOperand();
         dfval->p2set[loadInst].clear();
         std::set<Value*> values;
         if(GetElementPtrInst* gepInst = dyn_cast<GetElementPtrInst>(target_value)){
             Value* ptr = gepInst->getPointerOperand();
             values = dfval->p2set[ptr];
+#ifdef DEBUG
             ptr->dump();
             errs()<<ptr<<"\n";
+#endif
             if(dfval->p2set[ptr].empty()){
                 values = dfval->p2set_field[ptr];
                 dfval->p2set[loadInst].insert(values.begin(),values.end());
@@ -231,7 +242,9 @@ public:
             values = dfval->p2set[target_value];
             dfval->p2set[loadInst].insert(values.begin(),values.end());
         }
+#ifdef DEBUG
         errs()<<*dfval;
+#endif
 
     }
 
@@ -239,9 +252,12 @@ public:
     void handleStoreInst(StoreInst* storeInst,PointerInfo* dfval){
         Value* store_value = storeInst->getValueOperand();
         Value* target_value = storeInst->getPointerOperand();
+
+#ifdef DEBUG
         errs()<<"Store:s,v,"<<store_value<<target_value<<"\n";
         storeInst->dump();
         errs()<<*dfval;
+#endif
         //获取要存储的值的values
         std::set<Value*> store_values;
         if(dfval->p2set[store_value].empty()){
@@ -278,7 +294,9 @@ public:
             dfval->p2set[target_value].clear();
             dfval->p2set[target_value].insert(store_values.begin(),store_values.end());
         }
+#ifdef DEBUG
         errs()<<*dfval;
+#endif
 
     }
 
@@ -301,10 +319,12 @@ public:
         std::map<Function*,PointerInfo> old_arg_p2s = arg_p2s;
         int line = callInst->getDebugLoc().getLine();
         result[line].clear();
+#ifdef DEBUG
         errs()<<"Call:"<<callInst<<"\n";
 
         callInst->dump();
         errs()<<"dfval:"<<*dfval;
+#endif
         //得出所有可能调用的函数
         std::set<Function*> callees;
         callees = getFuncByValue(callInst->getCalledOperand(),dfval);
@@ -327,7 +347,9 @@ public:
                 }
             }
         }
+#ifdef DEBUG
         errs() << "\t caller_args:" <<caller_args;
+#endif
         if(caller_args.p2set.empty()){ //没有指针参数的话就直接返回
             return;
         }
@@ -357,7 +379,6 @@ public:
                     Value* callee_arg = callee->arg_begin() + i;
                     arg_p2s[callee].p2set[callee_arg].insert(caller_args.p2set[caller_arg].begin(),caller_args.p2set[caller_arg].end());
                     arg_p2s[callee].p2set_field[callee_arg].insert(caller_args.p2set_field[caller_arg].begin(),caller_args.p2set_field[caller_arg].end());
-                    errs()<<"\t" << callee->getName() << "insert args:"<<arg_p2s[callee];
                     //搜索
                     std::set<Value*> wl;
                     for(auto* v:caller_args.p2set[caller_arg]){
@@ -371,7 +392,9 @@ public:
                     std::set<Value*> oldlist;
                     while(!wl.empty()){
                         Value* v = *wl.begin();
+#ifdef DEBUG
                         v->dump();
+#endif
                         wl.erase(wl.begin());
                         if(oldlist.count(v)){
                             continue;
@@ -379,21 +402,26 @@ public:
                         oldlist.insert(v);
                             arg_p2s[callee].p2set[v].insert(dfval->p2set[v].begin(),dfval->p2set[v].end());
                             wl.insert(dfval->p2set[v].begin(),dfval->p2set[v].end());
-                            errs()<<"insert!!!!!!!!!!!\n";
                             arg_p2s[callee].p2set_field[v].insert(dfval->p2set_field[v].begin(),dfval->p2set_field[v].end());
                             wl.insert(dfval->p2set_field[v].begin(),dfval->p2set_field[v].end());
                         
                     }
                 }
             }
+#ifdef DEBUG
             errs()<<"\t" << callee->getName() << "insert args:"<<arg_p2s[callee];
+#endif
         }
         //获取被调用函数返回后的指针参数的p2s，并更新
+#ifdef DEBUG
         errs()<<"\tret args:\n";
         errs()<<*dfval;
+#endif
         for(auto ci = callees.begin(),ce = callees.end();ci != ce;ci++){
             Function* callee = *ci;
+#ifdef DEBUG
             errs()<<ret_arg_p2s[callee];
+#endif
             for(auto i : ret_arg_p2s[callee].p2set){
                 Value* t = i.first;
                 if(ce_arg_set.count(t) > 0){
@@ -458,7 +486,9 @@ public:
             }
         }
         */
+#ifdef DEBUG
         errs()<<*dfval;
+#endif
 
 
         // 获取返回值
@@ -493,18 +523,22 @@ public:
 
     std::set<Function*> getFuncByValue(Value* value,PointerInfo* dfval){
         std::set<Function*> res;
+#ifdef DEBUG
         errs()<<"getFuncByValue:\n";
         value->dump();
         errs()<<dfval->p2set.size()<<" "<<dfval->p2set[value].size()<<"\n";
+#endif
         //沿着控制流找Function
         res = getFuncByValue_work(value,dfval);
         for(auto fi = res.begin(),fe = res.end(); fi != fe;fi++){
             Function* func = *fi;
             res.insert(func);
         }
+#ifdef DEBUG
         if(res.empty()){
             errs()<<"nothing found\n";
         }
+#endif
         return res;
     }
 
